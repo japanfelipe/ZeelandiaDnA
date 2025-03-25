@@ -1,0 +1,102 @@
+Slope Mov3M AVG Volume =
+VAR MonthIndexTable =
+    ADDCOLUMNS(
+        SUMMARIZE(
+            dates,
+            dates[year_month]
+        ),
+        "MonthIndex",
+            RANKX(
+                ALL(dates[year_month]),
+                dates[year_month],
+                ,
+                ASC,
+                DENSE
+            )
+    )
+
+VAR MonthlyData =
+    ADDCOLUMNS(
+        GENERATE(
+            SELECTCOLUMNS(
+                MonthIndexTable,
+                "MonthIndexYearMonth", dates[year_month], -- ✅ Renamed to avoid conflict
+                "MonthIndex", [MonthIndex]
+            ),
+            CALCULATETABLE(
+                SUMMARIZE(
+                    dates,
+                    dates[year_month],
+                    "TotalVolume", SUM('sale_statistics'[sale_net_weight])
+                ),
+                REMOVEFILTERS(dates)
+            )
+        ),
+        "MovingAverage",
+            VAR LastThreeMonths =
+                TOPN(
+                    3,
+                    CALCULATETABLE(
+                        SUMMARIZE(
+                            dates,
+                            dates[year_month],
+                            "TotalVolume", SUM('sale_statistics'[sale_net_weight])
+                        ),
+                        REMOVEFILTERS(dates)
+                    ),
+                    dates[year_month],
+                    DESC
+                )
+            VAR TotalVolume =
+                SUMX(
+                    LastThreeMonths,
+                    [TotalVolume]
+                )
+            VAR MonthCount =
+                COUNTROWS(
+                    FILTER(
+                        LastThreeMonths,
+                        NOT(ISBLANK([TotalVolume]))
+                    )
+                )
+            RETURN IF(
+                MonthCount > 0,
+                DIVIDE(TotalVolume, MonthCount, BLANK()),
+                BLANK()
+            )
+    )
+
+VAR n = COUNTROWS(MonthlyData)
+
+VAR __SumX =
+    SUMX(
+        MonthlyData,
+        [MonthIndex]
+    )
+
+VAR __SumY =
+    SUMX(
+        MonthlyData,
+        [MovingAverage]
+    )
+
+VAR __SumXY =
+    SUMX(
+        MonthlyData,
+        [MonthIndex] * [MovingAverage]
+    )
+
+VAR __SumX2 =
+    SUMX(
+        MonthlyData,
+        [MonthIndex] ^ 2
+    )
+
+VAR Slope =
+    DIVIDE(
+        n * __SumXY - __SumX * __SumY,
+        n * __SumX2 - __SumX ^ 2,
+        BLANK()
+    )
+
+RETURN Slope
